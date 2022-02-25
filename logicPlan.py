@@ -391,7 +391,6 @@ def pacphysicsAxioms(t: int, all_coords: List[Tuple], non_outer_wall_coords: Lis
 
     return pacphysics_sentences
 
-
     "*** END YOUR CODE HERE ***"
 
 def collapseHelper(list, andOr): #and will be true, or will be false
@@ -492,12 +491,12 @@ def positionLogicPlan(problem) -> List:
 
         actionlist = []
         for action in actions:
-            actionlist.append(PropSymbolExpr(action, t))
+            actionlist.append(PropSymbolExpr(action, time = t))
 
-        KB.append(atMostOne(actionlist))
-        KB.append(atMostOne(allSpots))
+        KB.append(exactlyOne(actionlist))
+        KB.append(exactlyOne(allSpots))
         KB = KB + pacmanSucessorStatements
-        KBexpression = collapseHelper(KB, True)
+        KBexpression = conjoin(KB)
         goalAssertion = PropSymbolExpr(pacman_str, xg, yg, time = t)
         goalSentence = conjoin(goalAssertion, KBexpression)
         model = findModel(goalSentence)
@@ -532,8 +531,39 @@ def foodLogicPlan(problem) -> List:
     KB = []
 
     "*** BEGIN YOUR CODE HERE ***"
-    util.raiseNotDefined()
-    "*** END YOUR CODE HERE ***"
+
+    KB.append(PropSymbolExpr(pacman_str, x0, y0, time = 0))
+    for t in range(0, 50):
+        print("time is :", t)
+
+        allSpots = []
+        pacmanSucessorStatements = []
+        allFood = []
+
+        for (x,y) in non_wall_coords:
+            allSpots.append(PropSymbolExpr(pacman_str, x, y, time = t))
+            pacmanSucessorStatements.append(pacmanSuccessorAxiomSingle(x,y, t+1, walls_grid))
+            allFood.append(PropSymbolExpr(food_str, x, y, t, time = t))
+
+        actionlist = []
+        for action in actions:
+            actionlist.append(PropSymbolExpr(action, time = t))
+
+        KB.append(exactlyOne(actionlist))
+        KB.append(exactlyOne(allSpots))
+        KB = KB + pacmanSucessorStatements
+
+        goalAssertion = []
+        for (x,y) in non_wall_coords:
+            goalAssertion.append(~PropSymbolExpr(food_str, x, y, time = t))
+
+        goalSentence = conjoin(goalAssertion, conjoin(KB))
+        model = findModel(goalSentence)
+        if model:
+            return extractActionSequence(model, actions)
+
+"*** END YOUR CODE HERE ***"
+
 
 #______________________________________________________________________________
 # QUESTION 6
@@ -549,11 +579,36 @@ def localization(problem, agent) -> Generator:
     non_outer_wall_coords = list(itertools.product(range(1, problem.getWidth()+1), range(1, problem.getHeight()+1)))
 
     KB = []
-
     "*** BEGIN YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    # Add to KB: where the walls are (walls_list) and aren't (not in walls_list)
+    for (x,y) in all_coords:
+        if (x,y) in walls_list:
+            KB.append(PropSymbolExpr(wall_str, x, y))
+        else:
+            KB.append(~PropSymbolExpr(wall_str, x, y))
 
     for t in range(agent.num_timesteps):
+        # Add pacphysics, action, and percept information to KB.
+        KB.append(pacphysicsAxioms(t,all_coords,non_outer_wall_coords,walls_grid, sensorAxioms, allLegalSuccessorAxioms))
+        KB.append(PropSymbolExpr(agent.actions[t], t))
+        KB.append(fourBitPerceptRules(t, agent.getPercepts()))
+        #Find possible pacman locations with updated KB.
+        possible_locations = []
+        for (x,y) in non_outer_wall_coords:
+            #Can we prove whether Pacman is at (x, y)?
+            premise_xy = conjoin(KB)
+            conclusion_xy = PropSymbolExpr(pacman_str, x, y, time = t)
+            if entails(premise_xy, conclusion_xy):
+                    possible_locations.append((x,y))
+                    KB.append(PropSymbolExpr(pacman_str, x, y, time = t))
+            else:
+                conclusion_not_xy = ~conclusion_xy
+                if entails(premise_xy, conclusion_not_xy):
+                    KB.append(~PropSymbolExpr(pacman_str, x, y, time = t))
+                else:
+                    possible_locations.append((x,y))
+            #maybe nice to have a debug statement here
+        agent.moveToNextState(agent.actions[t])
         "*** END YOUR CODE HERE ***"
         yield possible_locations
 
