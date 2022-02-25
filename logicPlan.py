@@ -200,7 +200,7 @@ def atLeastOne(literals: List[Expr]) -> Expr:
     "*** BEGIN YOUR CODE HERE ***"
 
     expression = literals[0]
-    for i in range(1, len(literals)-1):
+    for i in range(1, len(literals)):
         expression = disjoin(expression, literals[i])
     return expression
 
@@ -225,7 +225,7 @@ def atMostOne(literals: List[Expr]) -> Expr:
     miniExpression = disjoin(firstLetter, secondLetter)
     expression = miniExpression
 
-    for i in range(1, len(list1)-1):
+    for i in range(1, len(list1)):
         firstLetter = ~list1[i][0]
         secondLetter = ~list1[i][1]
         miniExpression = disjoin(firstLetter, secondLetter)
@@ -275,12 +275,19 @@ def pacmanSuccessorAxiomSingle(x: int, y: int, time: int, walls_grid: List[List[
                             & PropSymbolExpr('East', time=last))
     if not possible_causes:
         return None
+
+    #assume that possible causes includes all locations that arent walls
     
     "*** BEGIN YOUR CODE HERE ***"
-    answer = possible_causes[0]
-    for i in range(1, len(possible_causes)-1):
-        answer = disjoin(possible_causes[i], answer)
-    return answer
+
+    possibleSucessors = possible_causes[0]
+
+    for i in range(1, len(possible_causes)):
+        possibleSucessors = disjoin( possibleSucessors, possible_causes[i])
+
+
+    realAnswer = PropSymbolExpr(pacman_str, x,y, time = now) % possibleSucessors
+    return realAnswer
     "*** END YOUR CODE HERE ***"
 
 
@@ -352,20 +359,22 @@ def pacphysicsAxioms(t: int, all_coords: List[Tuple], non_outer_wall_coords: Lis
 
     "*** BEGIN YOUR CODE HERE ***"
 
-    wallExpression = [] #and
+    wallExpression = []
     for (x,y) in all_coords:
-            wallExpression.append(PropSymbolExpr(wall_str, x,y) >> ~PropSymbolExpr(pacman_str, x, y, t)) #think about returning t, is t neccessary?
-    wallDone = collapseHelper(wallExpression, True)
+            wallExpression.append(PropSymbolExpr(wall_str, x,y) >> ~PropSymbolExpr(pacman_str, x, y, time=t))
+    wallDone = conjoin(wallExpression)
 
-    pacmanSomewhere = [] # or
+    pacmanSomewhere = []
     for (x,y) in non_outer_wall_coords:
-        pacmanSomewhere.append(PropSymbolExpr(pacman_str, x, y, t)) #is t necessary?
-    pacmanSomewhereDone = collapseHelper(pacmanSomewhere, False)
+        pacmanSomewhere.append(PropSymbolExpr(pacman_str, x, y, time =t))
 
-    pacmanMoves = [] # or
+    pacmanSomewhereDone = exactlyOne(pacmanSomewhere)
+
+    pacmanMoves = []
     for actions in DIRECTIONS:
-        pacmanMoves.append(PropSymbolExpr(actions, t))
-    pacmanMovesDone = collapseHelper(pacmanMoves, False)
+        pacmanMoves.append(PropSymbolExpr(actions, time = t))
+
+    pacmanMovesDone = exactlyOne(pacmanMoves)
 
 
     pacphysics_sentences = conjoin(wallDone, pacmanSomewhereDone, pacmanMovesDone)
@@ -375,11 +384,10 @@ def pacphysicsAxioms(t: int, all_coords: List[Tuple], non_outer_wall_coords: Lis
         pacphysics_sentences = conjoin(pacphysics_sentences, sensorInfo)
 
 
-    if successorAxioms is not None:
-        print("sucessorAxioms", successorAxioms)
-        print("Made it in the loop")
+    if successorAxioms is not None and t > 0:
         successorAxiomsInfo = successorAxioms(t, walls_grid, non_outer_wall_coords)
         pacphysics_sentences = conjoin(pacphysics_sentences, successorAxiomsInfo)
+
 
     return pacphysics_sentences
 
@@ -428,21 +436,19 @@ def checkLocationSatisfiability(x1_y1: Tuple[int, int], x0_y0: Tuple[int, int], 
     "*** BEGIN YOUR CODE HERE ***"
 
     KB.append(pacphysicsAxioms(0, all_coords, non_outer_wall_coords, walls_grid, None, None))
-    KB.append(PropSymbolExpr(pacman_str, x0, y0, 0))
-    KB.append(PropSymbolExpr(action0, 0))
-    KB.append(PropSymbolExpr(action1, 1))
+    KB.append(pacphysicsAxioms(1, all_coords, non_outer_wall_coords, walls_grid, None, allLegalSuccessorAxioms))
+    KB.append(PropSymbolExpr(pacman_str, x0, y0, time = 0))
+    KB.append(PropSymbolExpr(action0, time = 0))
+    KB.append(PropSymbolExpr(action1, time = 1))
+    KBexpression = conjoin(KB)
 
     #model1
-    expressionPremise = conjoin(PropSymbolExpr(action0, 0), PropSymbolExpr(action1, 0)) #awitch to time = 1 if doesn't work
-    expression1Conclussion = PropSymbolExpr(pacman_str, x1, y1, 1)
-    expression1 = conjoin(expressionPremise, ~expression1Conclussion)
-    KBexpression = collapseHelper(KB, True)
-    Model1 = findModel(conjoin(KBexpression, expression1))
+    expression1Conclussion = PropSymbolExpr(pacman_str, x1, y1, time = 1)
+    Model1 = findModel(conjoin(KBexpression, expression1Conclussion))
 
     #Model2
-    expression2Conclusion = ~PropSymbolExpr(pacman_str, x1, y1, 1)
-    expression2 = conjoin(expressionPremise, ~ expression2Conclusion)
-    Model2 = findModel(conjoin(KBexpression, expression2))
+    expression2Conclusion = ~PropSymbolExpr(pacman_str, x1, y1, time = 1)
+    Model2 = findModel(conjoin(KBexpression, expression2Conclusion))
 
 
     return (Model1, Model2)
@@ -472,7 +478,32 @@ def positionLogicPlan(problem) -> List:
     KB = []
 
     "*** BEGIN YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    KB.append(PropSymbolExpr(pacman_str, x0, y0, time = 0))
+    print("pacmangoal", xg, yg)
+    for t in range(0, 50):
+        print("time is :", t)
+
+        allSpots = []
+        pacmanSucessorStatements = []
+
+        for (x,y) in non_wall_coords:
+            allSpots.append(PropSymbolExpr(pacman_str, x, y, time = t))
+            pacmanSucessorStatements.append(pacmanSuccessorAxiomSingle(x,y, t+1, walls_grid))
+
+        actionlist = []
+        for action in actions:
+            actionlist.append(PropSymbolExpr(action, t))
+
+        KB.append(atMostOne(actionlist))
+        KB.append(atMostOne(allSpots))
+        KB = KB + pacmanSucessorStatements
+        KBexpression = collapseHelper(KB, True)
+        goalAssertion = PropSymbolExpr(pacman_str, xg, yg, time = t)
+        goalSentence = conjoin(goalAssertion, KBexpression)
+        model = findModel(goalSentence)
+        if model:
+            return extractActionSequence(model, actions)
+
     "*** END YOUR CODE HERE ***"
 
 #______________________________________________________________________________
